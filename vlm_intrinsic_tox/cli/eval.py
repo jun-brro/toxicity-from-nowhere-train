@@ -9,7 +9,7 @@ from typing import Dict, List
 import numpy as np
 import torch
 
-from ..config import load_config
+from ..utils.config import load_config
 from ..eval.analyze import analyze_latents
 from ..eval.intervene import gate_latents
 from ..eval.report import write_reports
@@ -22,46 +22,43 @@ LOGGER = get_logger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate toxic-aligned latents")
-    parser.add_argument("--config", type=Path, nargs="+", help="Config YAML files")
-    parser.add_argument("--extract-dir", type=Path, required=True, help="Directory with δ_int shards")
-    parser.add_argument("--sae-dir", type=Path, required=True, help="Directory with SAE checkpoints")
-    parser.add_argument("--layers", type=int, nargs="*", help="Layer indices to evaluate")
-    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--config", type=Path, required=True, help="YAML config file")
+    parser.add_argument("overrides", nargs="*", help="Config overrides (e.g., eval.layers=[0,2,4])")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     configure_logging()
-    cfg = load_config(args.config)
-    layers = args.layers or list(cfg.eval.layers) or list(cfg.extract.layers.layers)
-    weights = cfg.eval.weights or {"dfreq": 1.0, "dmag": 1.0, "auroc": 1.0, "kl": 1.0}
+    cfg = load_config([args.config], overrides=args.overrides)
+    layers = cfg.eval.layers
+    weights = cfg.eval.consensus.weights
     summaries = []
     for layer in layers:
-        shard_dir = args.extract_dir / f"layer_{layer:02d}"
+        shard_dir = Path(cfg.eval.io.activ_dir) / f"layer_{layer:02d}"
         shard_paths = sorted(shard_dir.glob("*.npz"))
         if not shard_paths:
             LOGGER.warning("No shards found for layer %s in %s", layer, shard_dir)
             continue
         LOGGER.info("Evaluating layer %s with %s shards", layer, len(shard_paths))
-        model_prefix = args.sae_dir / f"layer_{layer:02d}"
-        model = load_model(model_prefix, device=args.device)
+        model_prefix = Path(cfg.eval.io.sae_dir) / f"layer_{layer:02d}"
+        model = load_model(model_prefix, device="cuda")
         scaler = load_scaler(model_prefix.with_suffix(".scaler.json"))
         activations, labels = _load_dataset(shard_paths)
         transformed = scaler.transform(activations)
-        z = _encode_latents(model, transformed, device=args.device)
+        z = _encode_latents(model, transformed, device="cuda")
         valid_mask = labels >= 0
         if not valid_mask.any():
             LOGGER.warning("Layer %s has no labeled samples; skipping metrics", layer)
             continue
         summary = analyze_latents(layer, z[valid_mask], labels[valid_mask], weights)
-        if cfg.eval.intervention_enabled:
+        if cfg.eval.intervention.enabled:
             top_latents = summary.top_latents(cfg.eval.topk_latents)
             gated = gate_latents(z, top_latents)
             _ = gated  # placeholder for future hooks
         summaries.append(summary)
     if summaries:
-        output_dir = Path(cfg.eval.output_dir)
+        output_dir = Path(cfg.eval.io.report_dir)
         write_reports(summaries, output_dir / "summary", cfg.eval.topk_latents)
 
 

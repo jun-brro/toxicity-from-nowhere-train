@@ -11,11 +11,11 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor, AutoTokenizer, LlavaForConditionalGeneration
 
-from ..config import DatasetConfig, ExtractConfig
-from ..data.datasets import Labeler, MemeSafetyBenchAdapter, load_label_mapping
+from ..utils.config import DataConfig, ExtractConfig
+from ..data.memesafety import Labeler, MemeSafetyBenchAdapter, load_label_mapping
 from ..utils.env import RunMetadata, resolve_repo_sha, save_metadata, set_global_seed
 from ..utils.logging import get_logger
-from .hooks import ResidualCapture, cross_attention_off, install_post_attention_hook, remove_hooks
+from ..models.hooks import ResidualCapture, cross_attention_off, install_post_attention_hook, remove_hooks
 from .pooling import POOLING_FNS
 from .sharding import ShardWriter
 
