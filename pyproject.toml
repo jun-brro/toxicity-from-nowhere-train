@@ -1,0 +1,20 @@
+[project]
+name = "toxicity-from-nowhere-train"
+version = "0.1.0"
+description = "Intrinsic toxicity extraction and SAE pipeline"
+authors = [{name = "OpenAI"}]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "torch",
+  "transformers",
+  "datasets",
+  "numpy",
+  "scikit-learn",
+  "scipy",
+  "pyyaml",
+  "pillow",
+]
+
+[project.optional-dependencies]
+dev = ["black", "ruff"]
