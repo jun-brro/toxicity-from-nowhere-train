@@ -1,0 +1,15 @@
+extract:
+  model_name: AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf
+  device: cuda
+  batch_size: 1
+  mixed_precision: bf16
+  shards_per_file: 256
+  dataset:
+    name: oneonlee/Meme-Safety-Bench
+    split: test
+    image_column: meme_image
+    instruction_column: instruction
+    prompt_template: "<image>\n{instruction}"
+  layers:
+    layers: [0, 2, 4]
+    pooling: text_only_mean

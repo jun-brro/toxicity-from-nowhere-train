@@ -1,0 +1,10 @@
+eval:
+  topk_latents: 50
+  output_dir: artifacts/eval
+  intervention_enabled: true
+  weights:
+    dfreq: 1.0
+    dmag: 1.0
+    auroc: 1.0
+    kl: 1.0
+  layers: [0, 2, 4]
