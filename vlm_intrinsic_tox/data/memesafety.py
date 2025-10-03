@@ -15,10 +15,11 @@ LOGGER = get_logger(__name__)
 
 @dataclass
 class Sample:
+    id: str
     image: str
-    prompt: str
+    instruction: str
     label: Optional[int]
-    metadata: Dict[str, object]
+    meta: Dict[str, object]
 
 
 class MemeSafetyBenchAdapter:
@@ -40,12 +41,18 @@ class MemeSafetyBenchAdapter:
 
     def iter_samples(self, prompt_template: str, labeler: "Labeler") -> Iterator[Sample]:
         dataset = self._ensure_dataset()
-        for row in dataset:
+        for idx, row in enumerate(dataset):
             image = row[self.image_column]
             instruction = row.get(self.instruction_column, "") or ""
             prompt = prompt_template.format(instruction=instruction)
             label = labeler(row)
-            yield Sample(image=image, prompt=prompt, label=label, metadata=row)
+            yield Sample(
+                id=f"{self.name}_{self.split}_{idx}",
+                image=image, 
+                instruction=instruction,
+                label=label, 
+                meta=row
+            )
 
 
 class Labeler:

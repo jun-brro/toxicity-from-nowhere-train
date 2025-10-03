@@ -1,10 +1,18 @@
 eval:
-  topk_latents: 50
-  output_dir: artifacts/eval
-  intervention_enabled: true
-  weights:
-    dfreq: 1.0
-    dmag: 1.0
-    auroc: 1.0
-    kl: 1.0
+  datasets: [memesafety_test]
   layers: [0, 2, 4]
+  metrics: [dfreq, dmag, auroc, kl, consensus]
+  consensus:
+    weights: {dfreq: 1.0, dmag: 1.0, auroc: 1.0, kl: 0.5}
+  threshold:
+    active: auto
+  topk_latents: 50
+
+intervention:
+  enabled: true
+  method: gate
+
+io:
+  activ_dir: artifacts/activations/llavaguard
+  sae_dir: artifacts/sae/llavaguard
+  report_dir: artifacts/reports/llavaguard
