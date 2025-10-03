@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 
 from ..utils.logging import get_logger
 from .memesafety import MemeSafetyBenchAdapter, Sample, Labeler, load_label_mapping
+from .siuo import SIUOAdapter
 
 LOGGER = get_logger(__name__)
 
@@ -55,6 +56,17 @@ def get_dataset(name: str, split: str, root: Optional[str] = None) -> Iterable[S
                 meta=sample.metadata
             )
     
+    elif name.startswith("siuo"):
+        # Handle SIUO dataset
+        if root is None:
+            raise ValueError("SIUO dataset requires root directory to be specified")
+        
+        # Extract data type from name (e.g., "siuo_gen" -> "gen")
+        data_type = name.split("_", 1)[1] if "_" in name else "gen"
+        
+        adapter = SIUOAdapter(data_dir=root, data_type=data_type)
+        yield from adapter
+    
     else:
         raise ValueError(f"Unknown dataset name: {name}")
 
@@ -65,6 +77,11 @@ DATASET_REGISTRY = {
         "hf_name": "oneonlee/Meme-Safety-Bench",
         "splits": ["test", "train"],
         "description": "Meme Safety Benchmark dataset"
+    },
+    "siuo_gen": {
+        "data_type": "gen",
+        "splits": ["test"],  # SIUO doesn't have explicit splits
+        "description": "SIUO dataset - generated content"
     }
 }
 

@@ -1,18 +1,32 @@
 # VLM Intrinsic Toxicity Pipeline
 
-This repository implements the extraction, sparse autoencoder training, and evaluation pipeline described in `AGENTS.md`. The code supports the LLaVA-Guard v1.2 model and Meme-Safety-Bench dataset by default, and is organized as a reusable Python package `vlm_intrinsic_tox` with three CLI entrypoints:
+This repository implements a comprehensive pipeline for detecting and mitigating intrinsic toxicity in Vision-Language Models (VLMs), as described in `AGENTS.md`. The code supports the LLaVA-Guard v1.2 model with multiple datasets and is organized as a reusable Python package `vlm_intrinsic_tox`.
+
+## Features
+
+- **δ_int Extraction**: Extract cross-modality interaction residuals from VLM decoder layers
+- **Top-K SAE Training**: Train overcomplete sparse autoencoders with Top-K activation
+- **Toxicity Evaluation**: Comprehensive metrics (dfreq, dmag, AUROC, KL, consensus) for latent analysis
+- **Visualization Tools**: t-SNE plots, activation distributions, and feature analysis
+- **Concept Steering**: GCAV-based intervention for real-time toxicity mitigation
+- **Multi-Dataset Support**: Meme-Safety-Bench, SIUO, and extensible dataset registry
+
+## CLI Tools
 
 - `python -m vlm_intrinsic_tox.cli.extract --config configs/extract.yaml`
-- `python -m vlm_intrinsic_tox.cli.train_sae --config configs/sae_train.yaml --layer 0 --shards artifacts/extract/layer_00/*.npz --output artifacts/sae/layer_00`
-- `python -m vlm_intrinsic_tox.cli.eval --config configs/eval.yaml --extract-dir artifacts/extract --sae-dir artifacts/sae`
+- `python -m vlm_intrinsic_tox.cli.train_sae --config configs/sae_train.yaml`
+- `python -m vlm_intrinsic_tox.cli.eval --config configs/eval.yaml`
+- `python -m vlm_intrinsic_tox.cli.visualize --config configs/eval.yaml --layer 0`
 
-The CLIs can be composed to run the full end-to-end workflow:
+## Workflow
 
-1. **Extract δ_int residuals** for chosen decoder layers.
-2. **Train overcomplete Top-K sparse autoencoders** on the pooled residuals.
-3. **Evaluate latent toxicity alignment** and generate JSON/Markdown reports with the highest scoring features per layer.
+1. **Extract δ_int residuals** for chosen decoder layers using ON/OFF cross-attention
+2. **Train overcomplete Top-K sparse autoencoders** on the pooled residuals
+3. **Evaluate latent toxicity alignment** with comprehensive metrics
+4. **Visualize and analyze** toxic latent features
+5. **Apply interventions** using latent gating or concept steering
 
-Refer to the configuration files in `configs/` for tunable parameters such as layers, pooling strategy, latent ratio, and metric weights. All artifacts include reproducibility metadata (Git commit, model name, dataset split, and seed).
+All configurations are in `configs/` with support for Hydra-style overrides. Artifacts include full reproducibility metadata.
 
 ## Documentation
 
