@@ -20,9 +20,9 @@ extract:
 
 data:
   datasets:
-    - memesafety_test
+    - memesafety_test # siuo_gen
   split: test
-  root: null
+  root: datasets/Meme-Safety-Bench/full # datasets/SIUO/data
 
 repro:
   seed: 42
