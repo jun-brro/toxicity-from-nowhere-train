@@ -47,6 +47,7 @@ class DataConfig:
     datasets: Sequence[str] = dataclasses.field(default_factory=lambda: ["memesafety_test"])
     split: str = "test"
     root: Optional[str] = None
+    max_samples: Optional[int] = None  # Limit number of samples for testing
 
 
 @dataclasses.dataclass
