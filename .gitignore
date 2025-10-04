@@ -214,3 +214,6 @@ toxic/
 /home/pljh0906/toxicity-from-nowhere-train/datasets/Meme-Safety-Bench/full/*
 /home/pljh0906/toxicity-from-nowhere-train/datasets/Meme-Safety-Bench/mini/*
 datasets/Meme-Safety-Bench/
+
+*.npz
+*.json
