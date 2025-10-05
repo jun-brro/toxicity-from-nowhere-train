@@ -4,6 +4,7 @@ from .collate import DataCollator, create_data_loader
 from .memesafety import MemeSafetyBenchAdapter, Sample, Labeler, load_label_mapping
 from .registry import get_dataset, list_datasets, DATASET_REGISTRY
 from .siuo import SIUOAdapter, load_siuo
+from .mdit import MDITBenchAdapter, load_mdit
 
 __all__ = [
     "DataCollator",
@@ -17,4 +18,6 @@ __all__ = [
     "DATASET_REGISTRY",
     "SIUOAdapter",
     "load_siuo",
+    "MDITBenchAdapter",
+    "load_mdit",
 ]
