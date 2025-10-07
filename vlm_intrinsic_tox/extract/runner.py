@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 import time
 from contextlib import nullcontext
+from itertools import islice
 
 import numpy as np
 import torch
@@ -17,6 +18,7 @@ from tqdm import tqdm
 from ..utils.config import RootConfig
 from ..data.memesafety import Labeler, MemeSafetyBenchAdapter, load_label_mapping
 from ..data.siuo import SIUOAdapter
+from ..data.mdit_triple import MDITTripleAdapter
 from ..utils.env import RunMetadata, resolve_repo_sha, save_metadata, set_global_seed
 from ..utils.logging import get_logger
 from ..models.hooks import ResidualCapture, cross_attention_off, install_post_attention_hook, remove_hooks
@@ -44,7 +46,7 @@ class ExtractRunner:
         self.processor = AutoProcessor.from_pretrained(cfg.model.hf_id)
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.model.hf_id)
         self.model = AutoModelForVision2Seq.from_pretrained(
-            cfg.model.hf_id, torch_dtype=_mixed_precision_dtype(cfg.model.dtype), device_map=cfg.model.device_map
+            cfg.model.hf_id, dtype=_mixed_precision_dtype(cfg.model.dtype), device_map=cfg.model.device_map
         )
         self.model.eval()
         set_global_seed(cfg.repro.seed)
@@ -60,7 +62,18 @@ class ExtractRunner:
         labeler = Labeler(label_mapping, "sentiment")
         
         # Select adapter based on dataset name
-        if dataset_name.startswith("siuo"):
+        if dataset_name.startswith("mdit_triple"):
+            if not dataset_cfg.root:
+                raise ValueError("MDIT-Bench-Triple dataset requires data.root to be specified in config")
+            
+            LOGGER.info(f"Using MDIT-Triple adapter with data_dir={dataset_cfg.root}, split={dataset_cfg.split}")
+            adapter = MDITTripleAdapter(
+                data_dir=dataset_cfg.root,
+                split=dataset_cfg.split,
+                text_mode="question_answer"
+            )
+            labeler = None  # MDIT-Triple has labels built-in
+        elif dataset_name.startswith("siuo"):
             # SIUO dataset - use local adapter
             if not dataset_cfg.root:
                 raise ValueError("SIUO dataset requires data.root to be specified in config")
@@ -102,16 +115,34 @@ class ExtractRunner:
         # Build prompt template
         prompt_template = "<image>\n{instruction}"
         
-        # Count total samples for progress bar
-        LOGGER.info("Counting samples...")
-        samples_list = list(adapter.iter_samples(prompt_template, labeler))
+        # For MDIT-Triple, we know the dataset size without loading samples
+        if dataset_name.startswith("mdit_triple"):
+            # Get dataset size directly from the adapter's dataset attribute
+            total_available = len(adapter.dataset)
+            LOGGER.info(f"Dataset size: {total_available} samples")
+            
+            # Limit samples if configured
+            if dataset_cfg.max_samples and dataset_cfg.max_samples < total_available:
+                total_samples = dataset_cfg.max_samples
+                LOGGER.info(f"Limiting to {total_samples} samples")
+            else:
+                total_samples = total_available
+            
+            # Create iterator (don't load all into memory)
+            samples_iter = adapter.iter_samples(prompt_template, labeler)
+        else:
+            # For other datasets, keep old behavior
+            LOGGER.info("Counting samples...")
+            samples_list = list(adapter.iter_samples(prompt_template, labeler))
+            
+            # Limit samples if configured
+            if dataset_cfg.max_samples and dataset_cfg.max_samples < len(samples_list):
+                LOGGER.info(f"Limiting to {dataset_cfg.max_samples} samples (total available: {len(samples_list)})")
+                samples_list = samples_list[:dataset_cfg.max_samples]
+            
+            total_samples = len(samples_list)
+            samples_iter = iter(samples_list)
         
-        # Limit samples if configured
-        if dataset_cfg.max_samples and dataset_cfg.max_samples < len(samples_list):
-            LOGGER.info(f"Limiting to {dataset_cfg.max_samples} samples (total available: {len(samples_list)})")
-            samples_list = samples_list[:dataset_cfg.max_samples]
-        
-        total_samples = len(samples_list)
         LOGGER.info(f"Processing {total_samples} samples across {len(self.cfg.extract.layers)} layers")
         
         for layer_idx in self.cfg.extract.layers:
@@ -120,28 +151,133 @@ class ExtractRunner:
             capture = ResidualCapture(keep_on_device=True)
             handles = install_post_attention_hook(self.model, [layer_idx], capture)
             
+            # Reset iterator for each layer
+            if dataset_name.startswith("mdit_triple"):
+                samples_iter = adapter.iter_samples(prompt_template, labeler)
+            else:
+                samples_iter = iter(samples_list)
+            
             try:
                 start_time = time.time()
-                with tqdm(samples_list, desc=f"Layer {layer_idx}", unit="sample") as pbar:
-                    for idx, sample in enumerate(pbar):
-                        sample_start = time.time()
-                        delta = self._extract_delta(sample, layer_idx, capture)
-                        shard_writer.add(delta, self._sanitize_metadata(sample))
+                batch_size = self.cfg.extract.batch_size
+                processed_count = 0
+                
+                with tqdm(total=total_samples, desc=f"Layer {layer_idx}", unit="sample") as pbar:
+                    while True:
+                        # Collect batch
+                        batch = list(islice(samples_iter, batch_size))
+                        if not batch:
+                            break
+                        
+                        # Apply max_samples limit
+                        if dataset_cfg.max_samples and processed_count + len(batch) > dataset_cfg.max_samples:
+                            batch = batch[:dataset_cfg.max_samples - processed_count]
+                        
+                        if not batch:
+                            break
+                        
+                        batch_start = time.time()
+                        
+                        # Process batch
+                        deltas = self._extract_delta_batch(batch, layer_idx, capture)
+                        
+                        # Add to shard writer
+                        for delta, sample in zip(deltas, batch):
+                            shard_writer.add(delta, self._sanitize_metadata(sample))
+                        
                         capture.clear()
                         
-                        # Update progress bar with timing info
-                        sample_time = time.time() - sample_start
-                        avg_time = (time.time() - start_time) / (idx + 1)
+                        # Update progress
+                        batch_time = time.time() - batch_start
+                        processed_count += len(batch)
+                        avg_time = (time.time() - start_time) / processed_count
+                        
                         pbar.set_postfix({
-                            'sample_time': f'{sample_time:.2f}s',
+                            'batch_time': f'{batch_time:.2f}s',
+                            'per_sample': f'{batch_time/len(batch):.2f}s',
                             'avg': f'{avg_time:.2f}s/sample'
                         })
+                        pbar.update(len(batch))
+                        
+                        if dataset_cfg.max_samples and processed_count >= dataset_cfg.max_samples:
+                            break
                         
             finally:
                 total_time = time.time() - start_time
-                LOGGER.info(f"Layer {layer_idx} completed in {total_time:.1f}s ({total_time/total_samples:.2f}s/sample)")
+                if processed_count > 0:
+                    LOGGER.info(f"Layer {layer_idx} completed in {total_time:.1f}s ({total_time/processed_count:.2f}s/sample)")
                 shard_writer.close()
                 remove_hooks(handles)
+
+    def _extract_delta_batch(self, batch: List, layer_idx: int, capture: ResidualCapture) -> List[np.ndarray]:
+        """Extract delta for a batch of samples (faster than processing one by one)."""
+        # Load all images
+        images = [load_image(sample.image) for sample in batch]
+        texts = [sample.prompt for sample in batch]
+        
+        # Process batch
+        inputs = self.processor(images=images, text=texts, return_tensors="pt", padding=True)
+        inputs = inputs.to(self.model.device)
+        
+        # Use autocast for faster computation if enabled
+        use_amp = self.cfg.extract.amp and self.model.device.type == 'cuda'
+        autocast_ctx = torch.amp.autocast('cuda') if use_amp else nullcontext()
+        
+        # ON pass
+        with torch.no_grad(), autocast_ctx:
+            _ = self.model(**inputs)
+            on_hidden = capture.activations[layer_idx]
+        
+        capture.clear()
+        
+        # OFF pass
+        with torch.no_grad(), autocast_ctx:
+            decoder_layer = self.model.language_model.layers[layer_idx]
+            with cross_attention_off(decoder_layer):
+                _ = self.model(**inputs)
+                off_hidden = capture.activations[layer_idx]
+        
+        # Compute delta (keep on GPU, convert to float32 for consistency)
+        delta_batch = (on_hidden - off_hidden).float()
+        
+        # Get pooling function and kwargs
+        pooling_fn = POOLING_FNS[self.cfg.extract.pooling.name]
+        pooling_kwargs = {}
+        if self.cfg.extract.pooling.name == "last_k_mean":
+            pooling_kwargs["k"] = self.cfg.extract.pooling.last_k
+        
+        # Get image token id
+        image_token = getattr(self.processor.tokenizer, "image_token", None)
+        image_token_id = None
+        if image_token is not None:
+            image_token_id = self.tokenizer.convert_tokens_to_ids(image_token)
+        
+        # Process each sample in batch
+        results = []
+        input_ids = inputs["input_ids"]
+        
+        for i in range(len(batch)):
+            # Filter out image tokens to get content (text) token indices for this sample
+            content_indices = [j for j, token in enumerate(input_ids[i].tolist()) 
+                             if token != image_token_id and token != self.tokenizer.pad_token_id]
+            
+            if not content_indices:
+                content_indices = list(range(input_ids.shape[1]))
+            
+            # Get delta for this sample
+            delta_sample = delta_batch[i:i+1]  # Keep batch dimension
+            
+            # Pool on GPU
+            pooled = pooling_fn(delta_sample, content_indices, **pooling_kwargs)
+            
+            # Remove batch dimension if present
+            if pooled.dim() == 2 and pooled.shape[0] == 1:
+                pooled = pooled.squeeze(0)
+            
+            # Move to CPU and convert to numpy
+            results.append(pooled.cpu().numpy())
+        
+        return results
 
     def _extract_delta(self, sample, layer_idx: int, capture: ResidualCapture) -> np.ndarray:
         image = load_image(sample.image)

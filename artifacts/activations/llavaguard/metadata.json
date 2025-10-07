@@ -1,7 +1,0 @@
-{
-  "dataset_name": "siuo_gen",
-  "dataset_split": "test",
-  "model_name": "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf",
-  "repo_sha": "6cb36fc7106f5db863d33069fe12e5363136d1dd",
-  "seed": 42
-}

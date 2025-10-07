@@ -8,6 +8,7 @@ from ..utils.logging import get_logger
 from .memesafety import MemeSafetyBenchAdapter, Sample, Labeler, load_label_mapping
 from .siuo import SIUOAdapter
 from .mdit import MDITBenchAdapter
+from .mdit_triple import MDITTripleAdapter
 
 LOGGER = get_logger(__name__)
 
@@ -68,8 +69,31 @@ def get_dataset(name: str, split: str, root: Optional[str] = None) -> Iterable[S
         adapter = SIUOAdapter(data_dir=root, data_type=data_type)
         yield from adapter
     
+    elif name.startswith("mdit_triple"):
+        # Handle MDIT-Bench-Triple dataset (322K samples with 3 toxicity levels)
+        if root is None:
+            raise ValueError("MDIT-Bench-Triple dataset requires root directory to be specified")
+        
+        # Default prompt template
+        prompt_template = "<image>\n{instruction}"
+        
+        adapter = MDITTripleAdapter(
+            data_dir=root,
+            split=split,
+            text_mode="question_answer"
+        )
+        
+        for sample in adapter.iter_samples(prompt_template, labeler=None):
+            yield Sample(
+                id=sample.id,
+                image=sample.image,
+                instruction=sample.metadata["instruction"],
+                label=sample.label,  # 0=benign, 1=explicit, 2=implicit
+                meta=sample.metadata
+            )
+    
     elif name.startswith("mdit"):
-        # Handle MDIT-Bench dataset
+        # Handle MDIT-Bench dataset (original)
         if root is None:
             raise ValueError("MDIT-Bench dataset requires root directory to be specified")
         
@@ -115,6 +139,12 @@ DATASET_REGISTRY = {
         "splits": ["test"],
         "toxicity_type": "intrinsic",  # Intrinsic toxicity
         "description": "SIUO dataset - generated content"
+    },
+    "mdit_triple": {
+        "splits": ["train", "test"],
+        "toxicity_type": "multi_level",  # 0=benign, 1=explicit, 2=implicit
+        "num_samples": 322921,
+        "description": "MDIT-Bench-Triple - 3 toxicity levels per question group (benign/explicit/implicit)"
     },
     "mdit": {
         "splits": ["test"],  # MDIT doesn't have explicit splits
