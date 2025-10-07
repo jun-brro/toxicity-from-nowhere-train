@@ -159,48 +159,29 @@ class ExtractRunner:
             
             try:
                 start_time = time.time()
-                batch_size = self.cfg.extract.batch_size
                 processed_count = 0
                 
                 with tqdm(total=total_samples, desc=f"Layer {layer_idx}", unit="sample") as pbar:
-                    while True:
-                        # Collect batch
-                        batch = list(islice(samples_iter, batch_size))
-                        if not batch:
-                            break
-                        
+                    for sample in samples_iter:
                         # Apply max_samples limit
-                        if dataset_cfg.max_samples and processed_count + len(batch) > dataset_cfg.max_samples:
-                            batch = batch[:dataset_cfg.max_samples - processed_count]
-                        
-                        if not batch:
+                        if dataset_cfg.max_samples and processed_count >= dataset_cfg.max_samples:
                             break
                         
-                        batch_start = time.time()
-                        
-                        # Process batch
-                        deltas = self._extract_delta_batch(batch, layer_idx, capture)
-                        
-                        # Add to shard writer
-                        for delta, sample in zip(deltas, batch):
-                            shard_writer.add(delta, self._sanitize_metadata(sample))
-                        
+                        sample_start = time.time()
+                        delta = self._extract_delta(sample, layer_idx, capture)
+                        shard_writer.add(delta, self._sanitize_metadata(sample))
                         capture.clear()
                         
                         # Update progress
-                        batch_time = time.time() - batch_start
-                        processed_count += len(batch)
+                        sample_time = time.time() - sample_start
+                        processed_count += 1
                         avg_time = (time.time() - start_time) / processed_count
                         
                         pbar.set_postfix({
-                            'batch_time': f'{batch_time:.2f}s',
-                            'per_sample': f'{batch_time/len(batch):.2f}s',
+                            'sample_time': f'{sample_time:.2f}s',
                             'avg': f'{avg_time:.2f}s/sample'
                         })
-                        pbar.update(len(batch))
-                        
-                        if dataset_cfg.max_samples and processed_count >= dataset_cfg.max_samples:
-                            break
+                        pbar.update(1)
                         
             finally:
                 total_time = time.time() - start_time

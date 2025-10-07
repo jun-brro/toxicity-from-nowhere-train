@@ -11,8 +11,8 @@ extract:
   pooling:
     name: text_only_mean
     last_k: 5
-  batch_size: 8
-  num_workers: 4
+  batch_size: 2
+  num_workers: 2
   amp: true
   save:
     out_dir: artifacts/activations/mdit_triple
