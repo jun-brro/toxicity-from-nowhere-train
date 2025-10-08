@@ -34,3 +34,41 @@ All configurations are in `configs/` with support for Hydra-style overrides. Art
 - [Usage Guide / 사용 가이드](doc/USAGE.md)
 
 Each guide is bilingual (English and Korean) and explains the repository layout, environment setup, pipeline stages, troubleshooting tips, and artifact expectations in depth.
+
+
+```bash
+# 10% 샘플링 (32K samples ≈ 13.5시간)
+python -m vlm_intrinsic_tox.cli.extract \
+  --config configs/extract_mdit_triple.yaml \
+  data.max_samples=32292
+
+# whole sampling
+python -m vlm_intrinsic_tox.cli.extract \
+  --config configs/extract_mdit_triple.yaml
+
+# Layer 0 SAE 학습
+python -m vlm_intrinsic_tox.cli.train_sae\
+    --config configs/sae_train.yaml \
+    io.in_dir=artifacts/activations/mdit_triple \
+    io.out_dir=artifacts/sae/mdit_triple \
+    layers=[0] \
+    sae.sae.epochs=25 \
+    sae.sae.batch_size=2048
+
+# 빠른 테스트 (fewer epochs)
+python -m vlm_intrinsic_tox.cli.train_sae\ 
+    --config configs/sae_train.yaml \
+    io.in_dir=artifacts/activations/mdit_triple \
+    io.out_dir=artifacts/sae/mdit_triple \
+    layers=[0] \
+    sae.sae.epochs=5
+
+# Toxic latent 분석
+python -m vlm_intrinsic_tox.cli.eval \
+    --config configs/eval.yaml \
+    io.activ_dir=artifacts/activations/mdit_triple \
+    io.sae_dir=artifacts/sae/mdit_triple \
+    io.report_dir=artifacts/reports/mdit_triple \
+    eval.layers=[0] \
+    eval.datasets=[mdit_triple]
+```

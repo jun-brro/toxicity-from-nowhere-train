@@ -7,6 +7,7 @@ from typing import Iterator, Optional
 
 from datasets import load_dataset
 from PIL import Image
+import random
 
 from ..utils.logging import get_logger
 
@@ -49,7 +50,8 @@ class MDITTripleAdapter:
         data_dir: str | Path,
         split: str = "train",
         text_mode: str = "question_answer",
-        omitted_log: Optional[str | Path] = None
+        omitted_log: Optional[str | Path] = None,
+        sample_fraction: Optional[float] = None
     ) -> None:
         """Initialize MDIT-Bench-Triple adapter.
         
@@ -62,10 +64,14 @@ class MDITTripleAdapter:
                 - "answer_only": Use answer only
             omitted_log: Optional path to log file for missing images.
                         If None, creates 'mdit_triple_omitted_{split}.txt' in data_dir
+            sample_fraction: Fraction of samples to use per label (0.0-1.0).
+                           If specified, samples each label class equally.
+                           E.g., 0.33 takes 33% from each of benign/explicit/implicit.
         """
         self.data_dir = Path(data_dir)
         self.split = split
         self.text_mode = text_mode
+        self.sample_fraction = sample_fraction
         
         if not self.data_dir.exists():
             raise FileNotFoundError(f"MDIT-Bench-Triple directory not found: {self.data_dir}")
@@ -86,6 +92,10 @@ class MDITTripleAdapter:
         try:
             self.dataset = load_dataset(str(self.data_dir), split=split)
             LOGGER.info(f"Loaded {len(self.dataset)} samples from MDIT-Bench-Triple {split} split")
+            
+            # Apply stratified sampling if requested
+            if sample_fraction is not None:
+                self._apply_stratified_sampling(sample_fraction)
         except Exception as e:
             raise RuntimeError(f"Failed to load MDIT-Bench-Triple dataset: {e}")
     
@@ -165,6 +175,37 @@ class MDITTripleAdapter:
         """Close the omitted log file on cleanup."""
         if hasattr(self, 'omitted_file') and self.omitted_file and not self.omitted_file.closed:
             self.omitted_file.close()
+    
+    def _apply_stratified_sampling(self, fraction: float) -> None:
+        """Apply stratified sampling to maintain equal representation of each label.
+        
+        Args:
+            fraction: Fraction of samples to keep per label (0.0-1.0)
+        """
+        if not (0.0 < fraction <= 1.0):
+            raise ValueError(f"sample_fraction must be in (0.0, 1.0], got {fraction}")
+        
+        # Group indices by label
+        from collections import defaultdict
+        label_indices = defaultdict(list)
+        for idx, item in enumerate(self.dataset):
+            label_indices[item['label']].append(idx)
+        
+        random.seed(42)  # For reproducibility
+        
+        sampled_indices = []
+        for label, indices in sorted(label_indices.items()):
+            n_samples = int(len(indices) * fraction)
+            sampled = random.sample(indices, n_samples)
+            sampled_indices.extend(sampled)
+            LOGGER.info(f"Label {label}: {len(indices)} -> {n_samples} samples ({fraction*100:.1f}%)")
+        
+        # Sort to maintain original order
+        sampled_indices.sort()
+        
+        # Select subset
+        self.dataset = self.dataset.select(sampled_indices)
+        LOGGER.info(f"Stratified sampling: {len(sampled_indices)} total samples ({fraction*100:.1f}% per label)")
     
     def _extract_text(self, item: dict) -> str:
         """Extract text from item based on text_mode setting.

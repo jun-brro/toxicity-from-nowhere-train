@@ -223,3 +223,5 @@ artifacts/
 ELITE/
 MDIT-Bench/
 MDIT-Bench-Triple/
+*.out
+*.sh

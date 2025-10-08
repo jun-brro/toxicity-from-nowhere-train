@@ -12,7 +12,7 @@ extract:
     name: text_only_mean
     last_k: 5
   batch_size: 2
-  num_workers: 2
+  num_workers: 4
   amp: true
   save:
     out_dir: artifacts/activations/mdit_triple
@@ -22,8 +22,9 @@ data:
   datasets:
     - mdit_triple
   split: train  # 322,921 samples in train split
-  root: /home/pljh0906/toxicity-from-nowhere-train/datasets/MDIT-Bench-Triple
+  root: /scratch2/yejinhand/toxicity-from-nowhere-train/datasets/MDIT-Bench-Triple
   max_samples: null  # Set to a small number for testing (e.g., 100), null for full dataset
+  sample_fraction: 0.33  # Use 33% from each label (benign/explicit/implicit) to maintain equal representation
 
 repro:
   seed: 42

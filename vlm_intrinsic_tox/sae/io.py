@@ -43,6 +43,7 @@ def load_scaler(path: Path) -> Scaler:
 
 
 def load_shards(paths: Iterable[Path]) -> Iterator[np.ndarray]:
+    """Load activation shards only (for SAE training)."""
     for path in paths:
         data = np.load(path, allow_pickle=True)
         # Extract runner saves as 'delta' key
@@ -53,6 +54,57 @@ def load_shards(paths: Iterable[Path]) -> Iterator[np.ndarray]:
             yield data["activations"].astype(np.float32)
         else:
             raise ValueError(f"Invalid shard file {path}: missing 'delta' or 'activations' key")
+
+
+def load_shards_with_labels(paths: Iterable[Path], label_key: str = "label") -> tuple[np.ndarray, np.ndarray]:
+    """Load activations and labels from shards for evaluation.
+    
+    Args:
+        paths: Paths to shard files
+        label_key: Key to extract from metadata (default: 'label')
+        
+    Returns:
+        Tuple of (activations, labels) arrays
+    """
+    all_activations = []
+    all_labels = []
+    
+    for path in paths:
+        # Load activations
+        data = np.load(path, allow_pickle=True)
+        if "delta" in data:
+            activations = data["delta"].astype(np.float32)
+        elif "activations" in data:
+            activations = data["activations"].astype(np.float32)
+        else:
+            raise ValueError(f"Invalid shard file {path}: missing 'delta' or 'activations' key")
+        
+        # Load metadata with labels
+        metadata = load_shard_metadata(path)
+        
+        # Extract labels from metadata
+        labels = []
+        for meta in metadata:
+            label = meta.get(label_key)
+            if label is None:
+                # Try alternative keys
+                if "toxicity_type" in meta:
+                    # Map toxicity_type string to numeric label
+                    toxicity_map = {"benign": 0, "explicit": 1, "implicit": 2}
+                    label = toxicity_map.get(meta["toxicity_type"], -1)
+                else:
+                    label = -1  # Unknown label
+            labels.append(label)
+        
+        labels = np.array(labels, dtype=np.int32)
+        
+        if len(labels) != len(activations):
+            raise ValueError(f"Mismatch: {len(activations)} activations but {len(labels)} labels in {path}")
+        
+        all_activations.append(activations)
+        all_labels.append(labels)
+    
+    return np.concatenate(all_activations, axis=0), np.concatenate(all_labels, axis=0)
 
 
 def load_shard_metadata(path: Path) -> List[dict]:
@@ -73,4 +125,4 @@ def load_model(prefix: Path, device: str = "cpu") -> TopKSAE:
     return model
 
 
-__all__ = ["save_train_result", "load_scaler", "load_shards", "load_shard_metadata", "load_model"]
+__all__ = ["save_train_result", "load_scaler", "load_shards", "load_shards_with_labels", "load_shard_metadata", "load_model"]

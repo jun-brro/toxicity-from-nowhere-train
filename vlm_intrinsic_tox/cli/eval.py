@@ -63,15 +63,38 @@ def main() -> None:
 
 
 def _load_dataset(paths: List[Path]) -> tuple[np.ndarray, np.ndarray]:
+    """Load activations and labels from shards.
+    
+    Supports both 'label' field and 'toxicity_type' string field.
+    For MDIT-Triple: benign=0, explicit=1, implicit=2
+    """
     arrays: List[np.ndarray] = []
     labels: List[int] = []
+    
     for path in paths:
-        shard = np.load(path)["activations"].astype(np.float32)
+        # Load activations (handle both 'delta' and 'activations' keys)
+        data = np.load(path, allow_pickle=True)
+        if "delta" in data:
+            shard = data["delta"].astype(np.float32)
+        elif "activations" in data:
+            shard = data["activations"].astype(np.float32)
+        else:
+            raise ValueError(f"Invalid shard file {path}: missing 'delta' or 'activations' key")
+        
         arrays.append(shard)
+        
+        # Load metadata and extract labels
         meta = load_shard_metadata(path)
         for item in meta:
             label = item.get("label")
+            
+            # If no direct label, try toxicity_type
+            if label is None and "toxicity_type" in item:
+                toxicity_map = {"benign": 0, "explicit": 1, "implicit": 2}
+                label = toxicity_map.get(item["toxicity_type"], -1)
+            
             labels.append(int(label) if label is not None else -1)
+    
     data = np.concatenate(arrays, axis=0)
     return data, np.asarray(labels, dtype=np.int64)
 

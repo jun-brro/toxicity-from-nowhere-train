@@ -66,11 +66,15 @@ class ExtractRunner:
             if not dataset_cfg.root:
                 raise ValueError("MDIT-Bench-Triple dataset requires data.root to be specified in config")
             
-            LOGGER.info(f"Using MDIT-Triple adapter with data_dir={dataset_cfg.root}, split={dataset_cfg.split}")
+            # Get sample_fraction from config if available
+            sample_fraction = getattr(dataset_cfg, 'sample_fraction', None)
+            
+            LOGGER.info(f"Using MDIT-Triple adapter with data_dir={dataset_cfg.root}, split={dataset_cfg.split}, sample_fraction={sample_fraction}")
             adapter = MDITTripleAdapter(
                 data_dir=dataset_cfg.root,
                 split=dataset_cfg.split,
-                text_mode="question_answer"
+                text_mode="question_answer",
+                sample_fraction=sample_fraction
             )
             labeler = None  # MDIT-Triple has labels built-in
         elif dataset_name.startswith("siuo"):

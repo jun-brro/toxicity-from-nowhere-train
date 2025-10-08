@@ -48,6 +48,7 @@ class DataConfig:
     split: str = "test"
     root: Optional[str] = None
     max_samples: Optional[int] = None  # Limit number of samples for testing
+    sample_fraction: Optional[float] = None  # Fraction of samples per label (stratified sampling)
 
 
 @dataclasses.dataclass
